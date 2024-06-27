@@ -4,6 +4,7 @@ import dataclasses
 from datetime import datetime
 from enum import Enum
 import json
+import logging
 from typing import Any
 
 import aiohttp
@@ -12,6 +13,8 @@ import arrow
 
 from .const import TIME_ZONE, USER_AGENT
 from .exceptions import CannotConnect, InvalidAuth
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -144,7 +147,7 @@ class CSU:
 
                 self.access_token = result["access_token"]
                 customerId = result["user"]["customerId"]
-                # self.customers.append(Customer(customerId=result['user']["customerId"]))
+                #self.customers.append(Customer(customerId=result['user']["customerId"]))
 
 
         except ClientResponseError as err:
@@ -168,9 +171,11 @@ class CSU:
                     raise InvalidAuth(result["errorMsg"])
                 #customerId = customerId
                 customerContext = result["account"][0]
+                _LOGGER.info("Customer Context: %s", customerContext)
                 self.customers.append(
                     Customer(customer_id=customerId, customer_context=customerContext)
                 )
+                _LOGGER.info("Customer: %s", self.customers[0].customer_id)
 
         except ClientResponseError as err:
             if err.status in (401, 403):
