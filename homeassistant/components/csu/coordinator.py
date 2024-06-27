@@ -1,17 +1,11 @@
+"""Coordinator for CSU data."""
+
 from datetime import datetime, timedelta
 import logging
-import socket
 from types import MappingProxyType
 from typing import Any, cast
 
-from csu import (
-    CSU,
-    AggregateType,
-    Meter,
-    MeterType,
-    ReadResolution,
-    UsageRead,
-)
+from csu import CSU, AggregateType, Meter, MeterType, ReadResolution, UsageRead
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
@@ -67,7 +61,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed from err
         # I think we need to write another function for this. Usage Reads takes a meter, and we need to get the meters first.
-        # we're trying to get the usage for the current bill for each meter, the pass that along. 
+        # we're trying to get the usage for the current bill for each meter, the pass that along.
         #usage_reads: list[UsageRead] = await self.api.async_get_usage_reads()
         #_LOGGER.debug("Updating sensor data with: %s", usage_reads)
         await self._insert_statistics()
@@ -75,13 +69,8 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
     async def _insert_statistics(self) -> None:
         """Insert CSU Statistics."""
         for meter in await self.api.async_get_meters():
-            id_prefix = "_".join(
-                (
-                    "CSU",
-                    meter.meter_type.name.lower(),
-                    meter.customer,
-                )
-            )
+            id_prefix = f"CSU_{meter.meter_type.name.lower()}_{meter.customer}"
+
             consumption_statistic_id = f"{DOMAIN}:{id_prefix}_energy_consumption"
             _LOGGER.debug(
                 "Updating Statistics for %s",

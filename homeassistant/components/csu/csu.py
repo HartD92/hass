@@ -1,8 +1,10 @@
+"""Colorado Springs Utilities API."""
+
 import dataclasses
 from datetime import datetime
 from enum import Enum
 import json
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
@@ -16,8 +18,8 @@ from .exceptions import CannotConnect, InvalidAuth
 class Customer:
     """Data about a customer."""
 
-    customerId: str
-    customerContext: dict
+    customer_id: str
+    customer_context: dict
 
 
 class AggregateType(Enum):
@@ -74,17 +76,18 @@ class Meter:
     """Data about a Meter."""
 
     customer: Customer
-    meterNumber: int
-    serviceNumber: str
-    serviceId: str
-    contractNum: str
+    meter_number: int
+    service_number: str
+    service_id: str
+    contract_num: str
     meter_type: MeterType
-    read_resolution: Optional[ReadResolution]
-    
+    read_resolution: ReadResolution | None = None
+
 
 @dataclasses.dataclass
 class UsageRead:
     """A read from the meeter that has consumption data."""
+
     meter: Meter
     start_time: datetime
     end_time: datetime
@@ -107,6 +110,8 @@ class CSU:
     def __init__(
         self, session: aiohttp.ClientSession, username: str, password: str
     ) -> None:
+        """Initialize the class."""
+
         self.session = session
         self.username = username
         self.password = password
@@ -115,6 +120,8 @@ class CSU:
         self.meters = [Meter]
 
     async def async_login(self) -> None:
+        """Login to the API."""
+
         customerId = ""
         data = aiohttp.FormData()
         data.add_field("username", self.username)
@@ -134,17 +141,17 @@ class CSU:
                 result = await resp.json()
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
-                else:
-                    self.access_token = result["access_token"]
-                    customerId = result["user"]["customerId"]
-                    # self.customers.append(Customer(customerId=result['user']["customerId"]))
-                    print(self.access_token)
+
+                self.access_token = result["access_token"]
+                customerId = result["user"]["customerId"]
+                # self.customers.append(Customer(customerId=result['user']["customerId"]))
+
 
         except ClientResponseError as err:
             if err.status in (401, 403):
-                raise InvalidAuth(err)
-            else:
-                raise CannotConnect(err)
+                raise InvalidAuth(err) from err
+
+            raise CannotConnect(err) from err
 
         try:
             async with self.session.post(
@@ -159,19 +166,21 @@ class CSU:
                 result = await resp.json()
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
-                else:
-                    customerContext = result["account"][0]
-                    self.customers.append(
-                        Customer(customerId=customerId, customerContext=customerContext)
-                    )
-                    print(self.customers)
+
+                customerContext = result["account"][0]
+                self.customers.append(
+                    Customer(customerId=customerId, customerContext=customerContext)
+                )
+
         except ClientResponseError as err:
             if err.status in (401, 403):
-                raise InvalidAuth(err)
-            else:
-                raise CannotConnect(err)
+                raise InvalidAuth(err) from err
+
+            raise CannotConnect(err) from err
 
     async def async_get_meters(self) -> None:
+        """Get meters for the customer."""
+
         try:
             async with self.session.post(
                 "https://myaccount.csu.org/rest/account/services/",
@@ -191,42 +200,41 @@ class CSU:
                 result = await resp.json()
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
-                else:
-                    meters = result["accountSummaryType"]["servicesForGraph"]
-                    for meter in meters:
-                        if meter["serviceNumber"] == "G-TYPICAL":
-                            meterType = MeterType.GAS
-                            readFrequency = ReadResolution.DAY
-                        elif meter["serviceNumber"] == "W-TYPICAL":
-                            meterType = MeterType.WATER
-                            readFrequency = ReadResolution.DAY
-                        elif meter["serviceNumber"] == "E-TYPICAL":
-                            meterType = MeterType.ELEC
-                            readFrequency = ReadResolution.QUARTER_HOUR
-                        self.meters.append(
-                            Meter(
-                                customer=self.customers[0],
-                                meterNumber=meter["meterNumber"],
-                                serviceNumber=meter["serviceNumber"],
-                                serviceId=meter["serviceId"],
-                                contractNum=meter["serviceContract"],
-                                meter_type=meterType,
-                                read_resolution=readFrequency,
-                            )
+
+                meters = result["accountSummaryType"]["servicesForGraph"]
+                for meter in meters:
+                    if meter["serviceNumber"] == "G-TYPICAL":
+                        meterType = MeterType.GAS
+                        readFrequency = ReadResolution.DAY
+                    elif meter["serviceNumber"] == "W-TYPICAL":
+                        meterType = MeterType.WATER
+                        readFrequency = ReadResolution.DAY
+                    elif meter["serviceNumber"] == "E-TYPICAL":
+                        meterType = MeterType.ELEC
+                        readFrequency = ReadResolution.QUARTER_HOUR
+                    self.meters.append(
+                        Meter(
+                            customer=self.customers[0],
+                            meter_number=meter["meterNumber"],
+                            service_number=meter["serviceNumber"],
+                            service_id=meter["serviceId"],
+                            contract_num=meter["serviceContract"],
+                            meter_type=meterType,
+                            read_resolution=readFrequency,
                         )
-                    print(self.meters)
+                    )
+
         except ClientResponseError as err:
             if err.status in (401, 403):
-                raise InvalidAuth(err)
-            else:
-                raise CannotConnect(err)
+                raise InvalidAuth(err) from err
+            raise CannotConnect(err) from err
 
     async def async_get_usage_reads(
         self,
         meter: Meter,
         aggregate_type: AggregateType,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> list[UsageRead]:
         """Get usage reads for a meter."""
         if not meter.read_resolution:
@@ -247,10 +255,7 @@ class CSU:
             start_date=start_date,
             end_date=end_date,
         )
-        if (
-            aggregate_type == AggregateType.QUARTER
-            or aggregate_type == AggregateType.HOUR
-        ):
+        if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
             meterReadField = "readDateTime"
             consumptionField = "scaledRead"
         else:
@@ -281,7 +286,8 @@ class CSU:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> list[Any]:
-        """Wrapper for _async_fetch to break large requests into smaller batches."""
+        """Break large _async_fetch requests into smaller batches."""
+
         if start_date is None:
             raise ValueError("start_date is required")
         if end_date is None:
@@ -294,15 +300,12 @@ class CSU:
         if aggregate_type == AggregateType.DAY:
             max_request_days = 6
             url_end = "month"
-        if (
-            aggregate_type == AggregateType.QUARTER
-            or aggregate_type == AggregateType.HOUR
-        ):
+        if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
             max_request_days = 1
             url_end = "day"
 
         url = url + url_end
-        print(url)
+
         result: list[Any] = []
         req_end = end
         while True:
@@ -326,12 +329,12 @@ class CSU:
         end_date: datetime | arrow.Arrow | None = None,
     ) -> list[Any]:
         data = {
-            "customerId": meter.customer.customerId,
-            "meterNumber": meter.meterNumber,
-            "serviceNumber": meter.serviceNumber,
-            "serviceId": meter.serviceId,
-            "accountContext": meter.customer.customerContext,
-            "contractNum": meter.contractNum,
+            "customerId": meter.customer.customer_id,
+            "meterNumber": meter.meter_number,
+            "serviceNumber": meter.service_number,
+            "serviceId": meter.service_id,
+            "accountContext": meter.customer.customer_context,
+            "contractNum": meter.contract_num,
         }
         headers = self._get_headers()
         headers["Content-Type"] = "application/json"
@@ -353,7 +356,7 @@ class CSU:
             # that can happen if end_date is before account activation
             if err.status == 500:
                 return []
-            raise err
+            raise
 
     def _get_headers(self):
         headers = {"User-Agent": USER_AGENT}
