@@ -18,7 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
-class Customer:
+class CsuCustomer:
     """Data about a customer."""
 
     customer_id: str
@@ -78,7 +78,7 @@ SUPPORTED_AGGREGATE_TYPES = {
 class Meter:
     """Data about a Meter."""
 
-    customer: Customer
+    customer: CsuCustomer
     meter_number: int
     service_number: str
     service_id: str
@@ -119,7 +119,7 @@ class CSU:
         self.username = username
         self.password = password
         self.access_token = ""
-        self.customers = [Customer]
+        self.customers = [CsuCustomer]
         self.meters = [Meter]
 
     async def async_login(self) -> None:
@@ -171,9 +171,10 @@ class CSU:
                     raise InvalidAuth(result["errorMsg"])
                 #customerId = customerId
                 customerContext = result["account"][0]
+                _LOGGER.info("Customer ID: %s", customerId)
                 _LOGGER.info("Customer Context: %s", customerContext)
                 self.customers.append(
-                    Customer(customer_id=customerId, customer_context=customerContext)
+                    CsuCustomer(customer_id=customerId, customer_context=customerContext)
                 )
                 _LOGGER.info("Customer: %s", self.customers[0].customer_id)
 
