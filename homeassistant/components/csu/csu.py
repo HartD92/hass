@@ -207,8 +207,8 @@ class CSU:
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
 
-                meters = result["accountSummaryType"]["servicesForGraph"]
-                for meter in meters:
+                meterResult = result["accountSummaryType"]["servicesForGraph"]
+                for meter in meterResult:
                     if meter["serviceNumber"] == "G-TYPICAL":
                         meterType = MeterType.GAS
                         readFrequency = ReadResolution.DAY
