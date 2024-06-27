@@ -176,7 +176,7 @@ class CSU:
                 self.customers.append(
                     CsuCustomer(customer_id=customerId, customer_context=customerContext)
                 )
-                _LOGGER.info("Customer: %s", self.customers[0].customer_id)
+                _LOGGER.info("Customer: %s", self.customers[0])
 
         except ClientResponseError as err:
             if err.status in (401, 403):
@@ -208,6 +208,7 @@ class CSU:
                     raise InvalidAuth(result["errorMsg"])
 
                 meterResult = result["accountSummaryType"]["servicesForGraph"]
+                _LOGGER.info("Meters: %s", meterResult)
                 for meter in meterResult:
                     if meter["serviceNumber"] == "G-TYPICAL":
                         meterType = MeterType.GAS
