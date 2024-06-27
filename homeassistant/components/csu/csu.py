@@ -169,7 +169,7 @@ class CSU:
 
                 customerContext = result["account"][0]
                 self.customers.append(
-                    Customer(customerId=customerId, customerContext=customerContext)
+                    Customer(customer_id=customerId, customer_context=customerContext)
                 )
 
         except ClientResponseError as err:
@@ -186,9 +186,9 @@ class CSU:
                 "https://myaccount.csu.org/rest/account/services/",
                 data=json.dumps(
                     {
-                        "customerId": self.customers[0].customerId,
+                        "customerId": self.customers[0].customer_id,
                         "multiAcctLimit": 10,
-                        "accountContext": self.customers[0].customerContext,
+                        "accountContext": self.customers[0].customer_context,
                     }
                 ),
                 headers={

@@ -1062,6 +1062,12 @@
       "config_flow": true,
       "iot_class": "cloud_push"
     },
+    "csu": {
+      "name": "Colorado Springs Utilities",
+      "integration_type": "hub",
+      "config_flow": true,
+      "iot_class": "cloud_polling"
+    },
     "cups": {
       "name": "CUPS",
       "integration_type": "hub",
