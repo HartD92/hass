@@ -22,11 +22,13 @@ from homeassistant.components.recorder.statistics import (
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, UnitOfEnergy, UnitOfVolume
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .exceptions import InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +59,18 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
             pass
 
         self.async_add_listener(_dummy_listener)
+
+    async def _async_update_data(self):
+        """Fetch data from CSU."""
+        try:
+            await self.api.async_login()
+        except InvalidAuth as err:
+            raise ConfigEntryAuthFailed from err
+        # I think we need to write another function for this. Usage Reads takes a meter, and we need to get the meters first.
+        # we're trying to get the usage for the current bill for each meter, the pass that along. 
+        #usage_reads: list[UsageRead] = await self.api.async_get_usage_reads()
+        #_LOGGER.debug("Updating sensor data with: %s", usage_reads)
+        await self._insert_statistics()
 
     async def _insert_statistics(self) -> None:
         """Insert CSU Statistics."""

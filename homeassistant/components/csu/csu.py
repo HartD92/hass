@@ -44,26 +44,6 @@ class MeterType(Enum):
         """Return the value of the enum."""
         return self.value
 
-
-@dataclasses.dataclass
-class UsageRead:
-    """A read from the meeter that has consumption data."""
-
-    start_time: datetime
-    end_time: datetime
-    consumption: float
-
-
-@dataclasses.dataclass
-class CostRead:
-    """A read from the meter that has both consumption and cost data."""
-
-    start_time: datetime
-    end_time: datetime
-    consumption: float  # taken from value field, in KWH or CCF
-    provided_cost: float  # in $
-
-
 class ReadResolution(Enum):
     """Minimum supported resolution."""
 
@@ -100,6 +80,25 @@ class Meter:
     contractNum: str
     meter_type: MeterType
     read_resolution: Optional[ReadResolution]
+    
+
+@dataclasses.dataclass
+class UsageRead:
+    """A read from the meeter that has consumption data."""
+    meter: Meter
+    start_time: datetime
+    end_time: datetime
+    consumption: float
+
+
+@dataclasses.dataclass
+class CostRead:
+    """A read from the meter that has both consumption and cost data."""
+
+    start_time: datetime
+    end_time: datetime
+    consumption: float  # taken from value field, in KWH or CCF
+    provided_cost: float  # in $
 
 
 class CSU:
@@ -265,6 +264,7 @@ class CSU:
                 result.append(
                     UsageRead(
                         # can perhaps just take readDateTime and subtract read["intervalType"]?
+                        meter=meter,
                         start_time=readStart,
                         end_time=datetime.fromisoformat(read[meterReadField]),
                         consumption=read[consumptionField],
