@@ -166,7 +166,7 @@ class CSU:
                 result = await resp.json()
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
-
+                customerId = result["account"][0]["customerId"]
                 customerContext = result["account"][0]
                 self.customers.append(
                     Customer(customer_id=customerId, customer_context=customerContext)

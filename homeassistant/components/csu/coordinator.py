@@ -5,8 +5,6 @@ import logging
 from types import MappingProxyType
 from typing import Any, cast
 
-from csu import CSU, AggregateType, Meter, MeterType, ReadResolution, UsageRead
-
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
@@ -22,6 +20,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
+from .csu import CSU, AggregateType, Meter, MeterType, ReadResolution, UsageRead
 from .exceptions import InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)

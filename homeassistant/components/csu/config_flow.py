@@ -5,7 +5,6 @@ from collections.abc import Mapping
 import logging
 from typing import Any
 
-from csu import CSU, CannotConnect, InvalidAuth
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
@@ -14,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .const import DOMAIN
+from .csu import CSU, CannotConnect, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
 
