@@ -121,8 +121,8 @@ class CSU:
         self.username = username
         self.password = password
         self.access_token = ""
-        self.customers = []
-        self.meters = []
+        self.customers = [CsuCustomer]
+        self.meters = [Meter]
 
     async def async_login(self) -> None:
         """Login to the API."""
