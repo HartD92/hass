@@ -50,6 +50,7 @@ class MeterType(Enum):
         """Return the value of the enum."""
         return self.value
 
+
 class ReadResolution(Enum):
     """Minimum supported resolution."""
 
@@ -148,8 +149,7 @@ class CSU:
 
                 self.access_token = result["access_token"]
                 customerId = result["user"]["customerId"]
-                #self.customers.append(Customer(customerId=result['user']["customerId"]))
-
+                # self.customers.append(Customer(customerId=result['user']["customerId"]))
 
         except ClientResponseError as err:
             if err.status in (401, 403):
@@ -170,14 +170,16 @@ class CSU:
                 result = await resp.json()
                 if "errorMsg" in result:
                     raise InvalidAuth(result["errorMsg"])
-                #customerId = customerId
+                # customerId = customerId
                 customerContext = result["account"][0]
                 _LOGGER.info("Customer ID: %s", customerId)
-                #_LOGGER.info("Customer Context: %s", customerContext)
+                # _LOGGER.info("Customer Context: %s", customerContext)
                 self.customers.append(
-                    CsuCustomer(customer_id=customerId, customer_context=customerContext)
+                    CsuCustomer(
+                        customer_id=customerId, customer_context=customerContext
+                    )
                 )
-                #_LOGGER.info("Customer: %s", self.customers[0])
+                # _LOGGER.info("Customer: %s", self.customers[0])
 
         except ClientResponseError as err:
             if err.status in (401, 403):
@@ -209,7 +211,7 @@ class CSU:
                     raise InvalidAuth(result["errorMsg"])
 
                 meterResult = result["accountSummaryType"]["servicesForGraph"]
-                #_LOGGER.info("Meters: %s", meterResult)
+                # _LOGGER.info("Meters: %s", meterResult)
                 for meter in meterResult:
                     if meter["serviceNumber"] == "G-TYPICAL":
                         meterType = MeterType.GAS
@@ -231,7 +233,7 @@ class CSU:
                             read_resolution=readFrequency,
                         )
                     )
-            #_LOGGER.info("Meters Object: %s", self.meters)
+            # _LOGGER.info("Meters Object: %s", self.meters)
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise InvalidAuth(err) from err
@@ -245,6 +247,7 @@ class CSU:
         end_date: datetime | None = None,
     ) -> list[UsageRead]:
         """Get usage reads for a meter."""
+
         if not meter.read_resolution:
             raise ValueError("Meter does not have a read resolution")
         if aggregate_type not in SUPPORTED_AGGREGATE_TYPES[meter.read_resolution]:
@@ -263,7 +266,7 @@ class CSU:
             start_date=start_date,
             end_date=end_date,
         )
-        if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
+        if aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}:
             meterReadField = "readDateTime"
             consumptionField = "usageConsumptionValue"
         else:
@@ -280,11 +283,15 @@ class CSU:
             for read in reads:
                 if read[meterReadField] is not None:
                     if readStart is None:
-                        readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(hours=1)
+                        readStart = datetime.fromisoformat(
+                            read[meterReadField]
+                        ).replace(tzinfo=DEN) - timedelta(hours=1)
                     if read[consumptionField] is not None:
                         aggConsumption = aggConsumption + read[consumptionField]
-                    readEnd = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN)
-                    _LOGGER.debug("Processing read from %s to %s",readStart,readEnd)
+                    readEnd = datetime.fromisoformat(read[meterReadField]).replace(
+                        tzinfo=DEN
+                    )
+                    _LOGGER.debug("Processing read from %s to %s", readStart, readEnd)
                     if readStart.minute == 45:
                         result.append(
                             UsageRead(
@@ -294,7 +301,11 @@ class CSU:
                                 consumption=aggConsumption,
                             )
                         )
-                        _LOGGER.debug("Adding read for %s with value of %s",(readEnd-timedelta(hours=1)),aggConsumption)
+                        _LOGGER.debug(
+                            "Adding read for %s with value of %s",
+                            (readEnd - timedelta(hours=1)),
+                            aggConsumption,
+                        )
                         aggConsumption = 0.0
                     readStart = datetime.fromisoformat(read[meterReadField])
         else:
@@ -303,14 +314,20 @@ class CSU:
                 if read[meterReadField] is not None:
                     if readStart is None:
                         if aggregate_type == AggregateType.DAY:
-                            readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(days=1)
+                            readStart = datetime.fromisoformat(
+                                read[meterReadField]
+                            ).replace(tzinfo=DEN) - timedelta(days=1)
                         elif aggregate_type == AggregateType.HOUR:
-                            readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(hours=1)
+                            readStart = datetime.fromisoformat(
+                                read[meterReadField]
+                            ).replace(tzinfo=DEN) - timedelta(hours=1)
                     result.append(
                         UsageRead(
                             meter=meter,
                             start_time=readStart.replace(tzinfo=DEN),
-                            end_time=datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN),
+                            end_time=datetime.fromisoformat(
+                                read[meterReadField]
+                            ).replace(tzinfo=DEN),
                             consumption=read[consumptionField],
                         )
                     )
@@ -331,18 +348,18 @@ class CSU:
             raise ValueError("start_date is required")
         if end_date is None:
             raise ValueError("end_date is required")
-        #DEN = tz.gettz(TIME_ZONE)
+        # DEN = tz.gettz(TIME_ZONE)
 
         start = start_date.date()
         end = end_date.date()
-        #start = arrow.get(start_date.date(), TIME_ZONE)
-        #end = arrow.get(end_date.date(), TIME_ZONE)
+        # start = arrow.get(start_date.date(), TIME_ZONE)
+        # end = arrow.get(end_date.date(), TIME_ZONE)
 
         max_request_days = 30
         if aggregate_type == AggregateType.DAY:
             max_request_days = 60
             url_end = "month"
-        if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
+        if aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}:
             max_request_days = 1
             url_end = "day"
 

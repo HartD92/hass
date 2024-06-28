@@ -1,4 +1,5 @@
 """Config flow for Colorado Springs Utilities integration."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -29,6 +30,7 @@ async def _validate_login(
     hass: HomeAssistant, login_data: dict[str, str]
 ) -> dict[str, str]:
     """Validate login data and return any errors."""
+
     api = CSU(
         async_create_clientsession(hass),
         login_data[CONF_USERNAME],
@@ -55,6 +57,7 @@ class CSUConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle the initial step."""
+
         errors: dict[str, str] = {}
         if user_input is not None:
             self._async_abort_entries_match(
@@ -72,8 +75,11 @@ class CSUConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
         )
 
-    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
         """Handle configuration by re-auth."""
+
         self.reauth_entry = self.hass.config_entries.async_get_entry(
             self.context["entry_id"]
         )
@@ -83,6 +89,7 @@ class CSUConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Dialog that informs the user that reauth is required."""
+
         assert self.reauth_entry
         errors: dict[str, str] = {}
         if user_input is not None:
