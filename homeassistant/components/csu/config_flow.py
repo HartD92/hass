@@ -65,7 +65,7 @@ class CSUConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = await _validate_login(self.hass, user_input)
             if not errors:
                 return self.async_create_entry(
-                    title=f"'CSU - ' ({user_input[CONF_USERNAME]})",
+                    title=f"'CSU - {user_input[CONF_USERNAME]}",
                     data=user_input,
                 )
         return self.async_show_form(

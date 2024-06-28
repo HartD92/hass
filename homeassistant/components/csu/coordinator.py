@@ -11,6 +11,7 @@ from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
     get_last_statistics,
     statistics_during_period,
+    valid_statistic_id,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, UnitOfEnergy, UnitOfVolume
 from homeassistant.core import HomeAssistant, callback
@@ -19,7 +20,7 @@ from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, TIME_ZONE
 from .csu import CSU, AggregateType, Meter, MeterType, ReadResolution, UsageRead
 from .exceptions import InvalidAuth
 
@@ -59,19 +60,23 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
             await self.api.async_login()
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed from err
-        # I think we need to write another function for this. Usage Reads takes a meter, and we need to get the meters first.
-        # we're trying to get the usage for the current bill for each meter, the pass that along.
+        # TODO: Usage Reads works great, but for useful sensors we need to take that data and get current bill usage.
+        # Update config flow to add in a field for bill rollover date?
+        # We can use that date to get everything since, and get current month usage.
+        # If we poll last 12 months we can get 'typical' usage and cost.
+        # That will let us make the sensors.
         #usage_reads: list[UsageRead] = await self.api.async_get_usage_reads()
         #_LOGGER.debug("Updating sensor data with: %s", usage_reads)
         await self._insert_statistics()
 
     async def _insert_statistics(self) -> None:
         """Insert CSU Statistics."""
-        for meter in await self.api.async_get_meters():
-            id_prefix = f"CSU_{meter.meter_type.name.lower()}_{meter.customer}"
+        await self.api.async_get_meters()
+        for meter in self.api.meters:
+            id_prefix = f"csu_{meter.meter_type.name.lower()}_{meter.customer.customer_id}"
 
             consumption_statistic_id = f"{DOMAIN}:{id_prefix}_energy_consumption"
-            _LOGGER.debug(
+            _LOGGER.info(
                 "Updating Statistics for %s",
                 consumption_statistic_id,
             )
@@ -80,16 +85,16 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
                 get_last_statistics, self.hass, 1, consumption_statistic_id, True, set()
             )
             if not last_stat:
-                _LOGGER.debug("Updating statistics for the first time")
+                _LOGGER.info("Updating statistics for the first time")
                 usage_reads = await self._async_get_usage_reads(
-                    meter, self.api.utility.timezone()
+                    meter, TIME_ZONE
                 )
                 consumption_sum = 0.0
                 last_stats_time = None
             else:
                 usage_reads = await self._async_get_usage_reads(
                     meter,
-                    self.api.utility.timezone(),
+                    TIME_ZONE,
                     last_stat[consumption_statistic_id][0]["start"],
                 )
                 if not usage_reads:
@@ -101,7 +106,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
                     usage_reads[0].start_time,
                     None,
                     {consumption_statistic_id},
-                    "hour" if meter.meter_type == MeterType.ELEC else "day",
+                    "hour" if meter.meter_type in (MeterType.ELEC, MeterType.GAS) else "day",
                     None,
                     {"sum"},
                 )
@@ -122,22 +127,34 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
                     )
                 )
 
-            name_prefix = f"CSU {meter.meter_type.name.lower()} {meter.customer}"
-
+            name_prefix = f"CSU {meter.meter_type.name.lower()} {meter.customer.customer_id}"
+            unit = None
+            if meter.meter_type == MeterType.ELEC:
+                unit = UnitOfEnergy.KILO_WATT_HOUR
+            elif meter.meter_type == MeterType.GAS:
+                unit = UnitOfVolume.CENTUM_CUBIC_FEET
+            elif meter.meter_type == MeterType.WATER:
+                unit = UnitOfVolume.CUBIC_FEET
             consumption_metadata = StatisticMetaData(
                 has_mean=False,
                 has_sum=True,
                 name=f"{name_prefix} consumption",
                 source=DOMAIN,
                 statistic_id=consumption_statistic_id,
-                unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR
-                if meter.meter_type == MeterType.ELEC
-                else UnitOfVolume.CENTUM_CUBIC_FEET,
+                unit_of_measurement=unit,
+            )
+            if valid_statistic_id(consumption_statistic_id):
+                _LOGGER.info("Statistic to insert data into: %s", consumption_metadata)
+                #_LOGGER.debug("Stats Object: %s", consumption_statistics)
+                async_add_external_statistics(
+                self.hass, consumption_metadata, consumption_statistics
+                )
+                continue
+            _LOGGER.warning(
+                "Invalid statistic id: %s",
+                consumption_statistic_id,
             )
 
-            async_add_external_statistics(
-                self.hass, consumption_metadata, consumption_statistics
-            )
 
     async def _async_get_usage_reads(
         self, meter: Meter, time_zone_str: str, start_time: float | None = None
@@ -157,6 +174,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
         ) -> None:
             for i, usage_read in enumerate(usage_reads):
                 for j, finer_usage_read in enumerate(finer_usage_reads):
+                    _LOGGER.debug("Read end time is %s and fine read start time is %s", usage_read.end_time,finer_usage_read.start_time)
                     if usage_read.start_time == finer_usage_read.start_time:
                         usage_reads[i:] = finer_usage_reads[j:]
                         return
@@ -169,7 +187,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
 
         tz = await dt_util.async_get_time_zone(time_zone_str)
         if start_time is None:
-            start = None
+            start = dt_util.now(tz) - timedelta(days = 3*365)
         else:
             start = datetime.fromtimestamp(start_time, tz=tz) - timedelta(days=30)
         end = dt_util.now(tz)
@@ -177,6 +195,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
             meter, AggregateType.DAY, start, end
         )
         if meter.read_resolution == ReadResolution.DAY:
+            _LOGGER.debug("Meter is Daily only. Returning Usages")
             return usage_reads
 
         if start_time is None:
@@ -184,6 +203,7 @@ class CsuCoordinator(DataUpdateCoordinator[dict[str, UsageRead]]):
         else:
             assert start
             start = max(start, end - timedelta(days=2 * 30))
+        _LOGGER.debug("Meter is hourly. Getting finer data stats for %s until %s",start,end)
         hourly_usage_reads = await self.api.async_get_usage_reads(
             meter, AggregateType.HOUR, start, end
         )

@@ -1,7 +1,7 @@
 """Colorado Springs Utilities API."""
 
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 import json
 import logging
@@ -10,6 +10,7 @@ from typing import Any
 import aiohttp
 from aiohttp.client_exceptions import ClientResponseError
 import arrow
+from dateutil import tz
 
 from .const import TIME_ZONE, USER_AGENT
 from .exceptions import CannotConnect, InvalidAuth
@@ -172,11 +173,11 @@ class CSU:
                 #customerId = customerId
                 customerContext = result["account"][0]
                 _LOGGER.info("Customer ID: %s", customerId)
-                _LOGGER.info("Customer Context: %s", customerContext)
+                #_LOGGER.info("Customer Context: %s", customerContext)
                 self.customers.append(
                     CsuCustomer(customer_id=customerId, customer_context=customerContext)
                 )
-                _LOGGER.info("Customer: %s", self.customers[0])
+                #_LOGGER.info("Customer: %s", self.customers[0])
 
         except ClientResponseError as err:
             if err.status in (401, 403):
@@ -208,11 +209,11 @@ class CSU:
                     raise InvalidAuth(result["errorMsg"])
 
                 meterResult = result["accountSummaryType"]["servicesForGraph"]
-                _LOGGER.info("Meters: %s", meterResult)
+                #_LOGGER.info("Meters: %s", meterResult)
                 for meter in meterResult:
                     if meter["serviceNumber"] == "G-TYPICAL":
                         meterType = MeterType.GAS
-                        readFrequency = ReadResolution.DAY
+                        readFrequency = ReadResolution.HOUR
                     elif meter["serviceNumber"] == "W-TYPICAL":
                         meterType = MeterType.WATER
                         readFrequency = ReadResolution.DAY
@@ -230,7 +231,7 @@ class CSU:
                             read_resolution=readFrequency,
                         )
                     )
-
+            #_LOGGER.info("Meters Object: %s", self.meters)
         except ClientResponseError as err:
             if err.status in (401, 403):
                 raise InvalidAuth(err) from err
@@ -264,25 +265,56 @@ class CSU:
         )
         if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
             meterReadField = "readDateTime"
-            consumptionField = "scaledRead"
+            consumptionField = "usageConsumptionValue"
         else:
             meterReadField = "readDate"
             consumptionField = "usageConsumptionValue"
 
         result = []
-        readStart = start_date
-        for read in reads:
-            if read[meterReadField] is not None:
-                result.append(
-                    UsageRead(
-                        # can perhaps just take readDateTime and subtract read["intervalType"]?
-                        meter=meter,
-                        start_time=readStart,
-                        end_time=datetime.fromisoformat(read[meterReadField]),
-                        consumption=read[consumptionField],
+        readStart = None
+        DEN = tz.gettz(TIME_ZONE)
+
+        # Home Assistant recorder will only allow hourly updates. We aggregate the 15m reads to hourly here.
+        if meter.meter_type == MeterType.ELEC:
+            aggConsumption = 0.0
+            for read in reads:
+                if read[meterReadField] is not None:
+                    if readStart is None:
+                        readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(hours=1)
+                    if read[consumptionField] is not None:
+                        aggConsumption = aggConsumption + read[consumptionField]
+                    readEnd = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN)
+                    _LOGGER.debug("Processing read from %s to %s",readStart,readEnd)
+                    if readStart.minute == 45:
+                        result.append(
+                            UsageRead(
+                                meter=meter,
+                                start_time=readEnd - timedelta(hours=1),
+                                end_time=readEnd,
+                                consumption=aggConsumption,
+                            )
+                        )
+                        _LOGGER.debug("Adding read for %s with value of %s",(readEnd-timedelta(hours=1)),aggConsumption)
+                        aggConsumption = 0.0
+                    readStart = datetime.fromisoformat(read[meterReadField])
+        else:
+            # TODO: Need to adjust the datetime for the daily reads, it's offset by 1 day.
+            for read in reads:
+                if read[meterReadField] is not None:
+                    if readStart is None:
+                        if aggregate_type == AggregateType.DAY:
+                            readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(days=1)
+                        elif aggregate_type == AggregateType.HOUR:
+                            readStart = datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN) - timedelta(hours=1)
+                    result.append(
+                        UsageRead(
+                            meter=meter,
+                            start_time=readStart.replace(tzinfo=DEN),
+                            end_time=datetime.fromisoformat(read[meterReadField]).replace(tzinfo=DEN),
+                            consumption=read[consumptionField],
+                        )
                     )
-                )
-                readStart = datetime.fromisoformat(read[meterReadField])
+                    readStart = datetime.fromisoformat(read[meterReadField])
         return result
 
     async def async_get_dated_data(
@@ -299,13 +331,16 @@ class CSU:
             raise ValueError("start_date is required")
         if end_date is None:
             raise ValueError("end_date is required")
+        #DEN = tz.gettz(TIME_ZONE)
 
-        start = arrow.get(start_date.date(), TIME_ZONE)
-        end = arrow.get(end_date.date(), TIME_ZONE)
+        start = start_date.date()
+        end = end_date.date()
+        #start = arrow.get(start_date.date(), TIME_ZONE)
+        #end = arrow.get(end_date.date(), TIME_ZONE)
 
         max_request_days = 30
         if aggregate_type == AggregateType.DAY:
-            max_request_days = 6
+            max_request_days = 60
             url_end = "month"
         if (aggregate_type in {AggregateType.QUARTER, AggregateType.HOUR}):
             max_request_days = 1
@@ -318,7 +353,7 @@ class CSU:
         while True:
             req_start = start
             if max_request_days is not None:
-                req_start = max(start, req_end.shift(days=-max_request_days))
+                req_start = max(start, (req_end - timedelta(days=max_request_days)))
             if req_start >= req_end:
                 return result
             reads = await self._async_fetch(meter, url, req_start, req_end)
@@ -326,7 +361,7 @@ class CSU:
                 return result
             result = reads + result
             # req_end = req_start.shift(days=-1)
-            req_end = req_end.shift(days=-max_request_days)
+            req_end = req_end - timedelta(days=max_request_days)
 
     async def _async_fetch(
         self,
@@ -347,9 +382,9 @@ class CSU:
         headers["Content-Type"] = "application/json"
 
         if start_date:
-            data["fromDate"] = start_date.date().strftime("%Y-%m-%d %H:%M")
+            data["fromDate"] = start_date.strftime("%Y-%m-%d %H:%M")
         if end_date:
-            data["toDate"] = end_date.date().strftime("%Y-%m-%d %H:%M")
+            data["toDate"] = end_date.strftime("%Y-%m-%d %H:%M")
         try:
             async with self.session.post(
                 url, data=json.dumps(data), headers=headers, raise_for_status=True
